@@ -1,0 +1,94 @@
+---
+title: "growth_rate"
+author: "EvieFarnham"
+date: "30/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Importing Growth Rate Data
+
+This code runs through how to import multiple excel files containing optical density (OD) values, produced by a spectrophotometer microplate reader, from seperate time points to produce a growth rate data file.
+
+This was designed to import data of bacterial growth in different media (type of media labelled on sheets of an excel file) every 24 hours for 2 weeks (time as seperate excel files and labeled with the correct hour after initial innoculation). Bacteria were grown in 96-well microplates, each microplate inlcuding multiple different bacterial strains in different wells, the position of different strains on the microplate are given by a microplate plan excel file. 
+
+The packages needed for this are:
+
+```{r growth_rate, echo=FALSE}
+# Packages need
+library(readxl)
+library(dplyr)
+library(tidyverse)
+```
+
+## Microplate Plan
+
+In order to know which strain is which in the 96-well microplate a microplate plan is made on excel which has A - H on the left hand column and 1 - 12 along the top and within each cell is the strain ID. 
+
+To read in the datafiles and have the strain ID associated with each datapoint we first need to download this microplate plan. Here we download this excel sheet and convert it so we have strain ID ('id') as one column and position ('pos') as another column. 'pos' columns states where in the 96-well microplate this strain ID is (e.g. A_5).
+
+```{r growth_rate, echo=FALSE}
+# Downloading microplate plan to add strain ID to our data file
+microplate_plan <- read_excel("FilePath/Microplate_Plan.xlsx") %>% 
+  # Gather coverts it to columns with 'col' and 'id' as the 2 columns
+  #(taking from columns 1 to 12 and adding this value into 'col')  
+  gather('col', 'id', `1`:`12`) %>% 
+  # Unite takes two columns together and combines them with a '_' 
+  # Here making a new column called 'pos' by uniting ...1 and col column
+  unite(pos, ...1, col)
+```
+
+## Functions
+
+To download the excel sheets as a loop we first need to create a function which will take into account the name of the excel sheet (the time the OD was taken) and the media the carbon is growing in (name of the sheets within each excel file).
+
+First we need to define the hours we took OD reads in a vector called time. Then we need to define the media we have grown the bacteria in (and also the names of each sheet) in a vector named carbons. We also have a vector of the excel file names to run through and import each file at a time.
+
+Once these vectors are created we then have our function, named importer, that will tell our loop to run through each excel file, sheet at a time, and label this set of data based on the time given to the file and the carbon name on the sheet.
+
+```{r growth_rate, echo=TRUE}
+# Time vector (in hours)
+time <- c(0, 24, 48, 72, 96, 120, 144)
+# Media vector (also your sheet names on each excel file)
+carbons <- c('Maltose', 'Glycine', 'Sucrose', 'Glucose', 'Serine', 'Arabinose', 'Succinic Acid', 'Histidine', 'Glutamine', 'Citric Acid', 'Malic Acid', 'Sorbitol', 'Xylose', 'Glutamic Acid', 'Proline', 'Asparagine', 'Nicotinamide', 'No Carbon')
+# Spreadsheet vector of all the excel file's names
+spreadsheets <- c('0_hour.xlsx', '24_hour.xlsx', '48_hour.xlsx', '72_hour.xlsx', '96_hour.xlsx', '120_hour.xlsx', '144_hour.xlsx')
+
+# Creating importer function
+importer <- function(paths, time) {
+  data <- map_dfr(carbons, ~mutate(read_excel(paths, sheet = .), Condition = ., Time = time))
+  return(data)
+}
+```
+
+## Importing Growth Data
+
+Now we can import our excel spreadsheets by putting this all together. 
+
+```{r growth_rate, echo=TRUE}
+# Importing different spreadsheets named after time vector using importer function 
+Timepoint_data <- map2_dfr(spreadsheets, time, importer) %>% 
+  # gather into columns 'col' from 1 to 12 and 'od' with values in
+  gather('col', 'OD', `1`:`12`) %>% 
+  # make one column called position 'pos' from two columns '<>' and 'col'  
+  unite(pos, `<>`, col) %>% 
+  # Join the Master plate plan to this dataset using left_join function
+  # Join by the column 'pos'
+  left_join(microplate_plan, by = 'pos') %>% 
+  # Have strains and replicates of each strain on the 96-well microplate. Therefore we need to seperate the 'ID' and 'Replicate' columns from the microplate_plan into 2 seperate columns
+  separate(id, c('ID', 'Replicate'), sep = '_') %>%
+  select(-pos)
+```
+
+## Saving this data 
+
+Now we can save all this data as one csv file and use this to analyse our growth rate data in R. 
+
+```{r growth_rate, echo=FALSE}
+# Saving data file
+write.csv(Timepoint_data, "Carbons_Timepoints_Growth.csv")
+```
+
